@@ -1,0 +1,212 @@
+// GRC Platform - Prisma Schema
+// Governance, Risk, and Compliance Data Model
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum EntityType {
+  ASSET
+  RISK
+  CONTROL
+  COMPLIANCE
+}
+
+enum AssetClassification {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  DECOMMISSIONED
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskStatus {
+  OPEN
+  MITIGATED
+  CLOSED
+  ACCEPTED
+}
+
+enum ControlRiskFactor {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ControlStatus {
+  IMPLEMENTED
+  PLANNED
+  NOT_IMPLEMENTED
+}
+
+enum ComplianceStatus {
+  COMPLIANT
+  NON_COMPLIANT
+  PARTIAL
+  NOT_ASSESSED
+}
+
+// ─── User & Auth ──────────────────────────────────────────────────────────────
+
+model User {
+  id                      Int                     @id @default(autoincrement())
+  username                String                  @unique
+  password                String
+  role                    Role                    @default(USER)
+  permissions             Permission[]
+  passwordChangeRequests  PasswordChangeRequest[] @relation("RequestedBy")
+  reviewedRequests        PasswordChangeRequest[] @relation("ReviewedBy")
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+}
+
+model Permission {
+  id        Int        @id @default(autoincrement())
+  userId    Int
+  entity    EntityType
+  canCreate Boolean    @default(false)
+  canRead   Boolean    @default(true)
+  canUpdate Boolean    @default(false)
+  canDelete Boolean    @default(false)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entity])
+}
+
+// ─── Core Entities ────────────────────────────────────────────────────────────
+
+model Asset {
+  id             Int                 @id @default(autoincrement())
+  name           String
+  description    String?
+  classification AssetClassification @default(INTERNAL)
+  status         AssetStatus         @default(ACTIVE)
+  isHidden       Boolean             @default(false)
+  risks          AssetRisk[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model Risk {
+  id          Int           @id @default(autoincrement())
+  name        String
+  description String?
+  severity    RiskSeverity  @default(MEDIUM)
+  status      RiskStatus    @default(OPEN)
+  isHidden    Boolean       @default(false)
+  assets      AssetRisk[]
+  controls    RiskControl[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model SecurityControl {
+  id           Int                 @id @default(autoincrement())
+  name         String
+  description  String?
+  riskFactor   ControlRiskFactor   @default(MEDIUM)
+  status       ControlStatus       @default(PLANNED)
+  isHidden     Boolean             @default(false)
+  risks        RiskControl[]
+  compliances  ControlCompliance[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+}
+
+model Compliance {
+  id          Int                 @id @default(autoincrement())
+  requirement String
+  description String?
+  status      ComplianceStatus    @default(NOT_ASSESSED)
+  isHidden    Boolean             @default(false)
+  controls    ControlCompliance[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+// ─── Junction Tables (Many-to-Many) ──────────────────────────────────────────
+
+model AssetRisk {
+  assetId Int
+  riskId  Int
+  asset   Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  risk    Risk  @relation(fields: [riskId], references: [id], onDelete: Cascade)
+
+  @@id([assetId, riskId])
+}
+
+model RiskControl {
+  riskId    Int
+  controlId Int
+  risk      Risk            @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  control   SecurityControl @relation(fields: [controlId], references: [id], onDelete: Cascade)
+
+  @@id([riskId, controlId])
+}
+
+model ControlCompliance {
+  controlId    Int
+  complianceId Int
+  control      SecurityControl @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  compliance   Compliance      @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+
+  @@id([controlId, complianceId])
+}
+
+model Archive {
+  id           Int      @id @default(autoincrement())
+  entityType   String
+  action       String
+  entityId     Int
+  entityName   String
+  changedBy    String   @default("System")
+  originalData Json
+  createdAt    DateTime @default(now())
+  reviewStatus String?
+  reviewedBy   String?
+  reviewedAt   DateTime?
+}
+
+enum PasswordChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model PasswordChangeRequest {
+  id            Int                  @id @default(autoincrement())
+  userId        Int
+  hashedOld     String
+  hashedNew     String
+  status        PasswordChangeStatus @default(PENDING)
+  requestedAt   DateTime             @default(now())
+  reviewedAt    DateTime?
+  reviewedById   Int?
+  reviewedBy     User? @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  user          User                 @relation("RequestedBy", fields: [userId], references: [id], onDelete: Cascade)
+}
